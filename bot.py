@@ -1,19 +1,14 @@
 import telebot
-from cfg import bot_token
+from cfg import bot_token, cursor
 import keyboard
 import main
+
 
 bot = telebot.TeleBot(bot_token)
 
 searched_cars = []
-
-selected_makes = []
-selected_makes_ids = []
 interested_models = {}
-start_end_years = []
-# selected_fuels = []
-# selected_transms = []
-# selected_drivs = []
+
 
 @bot.message_handler(commands=['add'])
 def start(message):
@@ -157,15 +152,15 @@ def get_user_driv(message, drivs, car_info, selected_drivs):
 
 
 def construct_url(message, searched_cars):
-    searched_cars = searched_cars[0]
-    body_types = searched_cars['body_types']
-    make = searched_cars['make']
-    model = searched_cars['model']
-    start_year = searched_cars['start_year']
-    end_year = searched_cars['end_year']
-    fuels = searched_cars['fuels']
-    transms = searched_cars['transms']
-    drivs = searched_cars['drivs']
+    car = searched_cars[len(searched_cars) - 1]
+    body_types = car['body_types']
+    make = car['make']
+    model = car['model']
+    start_year = car['start_year']
+    end_year = car['end_year']
+    fuels = car['fuels']
+    transms = car['transms']
+    drivs = car['drivs']
 
     payload = {
         'j': body_types,
@@ -203,19 +198,17 @@ def construct_url(message, searched_cars):
 
     base_url += fuel_url + transm_url + driv_url + body_type_url + "&ae%5B%5D=" + "8" + "&af%5B%5D=" + "50"
     print(base_url)
-    all_variants = main.all_variants(payload, base_url)
+    all_variants = main.all_variants(payload, base_url, model)
     if all_variants == -1:
         bot.send_message(message.chat.id, "Машин не найдено")
 
-
-
-    #https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&aj=&ssid=103647003&b=4&bw=1179&f1=2007&f2=2013&h%5B%5D=1&h%5B%5D=2&i%5B%5D=2&p%5B%5D=2&ae=8&af=50&otsi=%D0%BF%D0%BE%D0%B8%D1%81%D0%BA
-
-    #https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&b=2&bw=36&ae=8&af=50&j=1&j=3
+    # else:
+    #     fill_db()
 
 
 
-
+#https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&aj=&ssid=103692755&j%5B%5D=3&b=4&bw=1189&f1=2003&f2=2010&h%5B%5D=2&i%5B%5D=2&p%5B%5D=2&p%5B%5D=3&ae=8&af=100&otsi=%D0%BF%D0%BE%D0%B8%D1%81%D0%BA
+#https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&b=2&b=4&bw=1189&f1=2003&f2=2010&h%5B%5D=2&i%5B%5D=2&p%5B%5D=2&p%5B%5D=3&j%5B%5D=7&ae%5B%5D=8&af%5B%5D=50
 
 
 

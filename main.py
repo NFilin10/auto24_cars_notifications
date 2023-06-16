@@ -1,6 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import psycopg2
+from psycopg2 import sql
+from cfg import cursor, conn
 
 
 headers = {
@@ -65,10 +67,15 @@ def get_body_type():
 
     body_types_dict = {}
 
+    counter = 0
+
     for option in body_types:
+        if counter == 8:
+            break
         option_text = option.text
         option_value = option['value']
         body_types_dict[option_text] = option_value
+        counter+=1
 
     return body_types_dict
 #
@@ -138,7 +145,7 @@ def get_driv():
 #
 
 # #getting all variants
-def all_variants(payload, url):
+def all_variants(payload, url, short_model):
 
     request_variants = requests.get(url, data=payload, headers=headers)
     # print(s.text)
@@ -182,62 +189,99 @@ def all_variants(payload, url):
             else:
                 model = ""
 
+
+
             engine = model_heading.find('span', class_='engine')
             if engine is not None:
                 engine = engine.text
             else:
                 engine = ""
 
+            price_block = i.find('span', class_='price')
+            price = price_block.text
+            print(price)
+
 
             model_heading = make + " " + model + " " + engine
+            cursor.execute(sql.SQL("SELECT EXISTS(SELECT * FROM information_schema.tables WHERE table_name = %s)").format(sql.Identifier(make)), (make,))
 
-            div_extra = i.find('div', class_='extra')
-            year_span = div_extra.select('span.year')
-            mileage_span = div_extra.select('span.mileage')
-            fuel_span = div_extra.select('span.fuel')
-            transmission_span = div_extra.select('span.transmission')
-            bodytype_span = div_extra.select('span.bodytype')
-            drive_span = div_extra.select('span.drive')
+            if cursor.fetchone()[0]:
+                pass
+
+            else:
+                cursor.execute(sql.SQL("CREATE TABLE {} (id serial primary key, model varchar(120), model_short varchar(50), year integer, mileage varchar(30), fuel varchar(30), transm varchar(30), body_type varchar(50), drive varchar(40), price varchar(20), link varchar(50))").format(sql.Identifier(make)))
+
 
             print(model_heading)
 
             year_span = i.find_all('span', class_='year')
             if year_span:
-                print(year_span[0].text)
+                year = year_span[0].text
+            else:
+                year = None
+
 
             mileage_span = i.find_all('span', class_='mileage')
             if mileage_span:
-                print(mileage_span[0].text)
+                mileage = mileage_span[0].text
+            else:
+                mileage = None
 
             fuel_span = i.find_all('span', class_='fuel')
             if fuel_span:
-                print(fuel_span[0].text)
+                fuel = fuel_span[0].text
+            else:
+                fuel = None
 
             transmission_span = i.find_all('span', class_='transmission')
             if transmission_span:
-                print(transmission_span[0].text)
+                transmission = transmission_span[0].text
+            else:
+                transmission = None
 
             bodytype_span = i.find_all('span', class_='bodytype')
             if bodytype_span:
-                print(bodytype_span[0].text)
+                bodytype = bodytype_span[0].text
+            else:
+                bodytype = None
 
             drive_span = i.find_all('span', class_='drive')
             if drive_span:
-                print(drive_span[0].text)
+                drive = drive_span[0].text
+            else:
+                drive = None
 
-            print("#############################")
+
+            link = soup_variant_page.find('a', class_='row-link')
+
+            link = link['href'].strip()
+
+            cursor.execute(sql.SQL("SELECT EXISTS(SELECT 1 FROM {} WHERE link = %s)").format(sql.Identifier(make)),(link,)
+            )
+            exists = cursor.fetchone()[0]
+
+            if not exists:
+                print("not exists")
+
+                cursor.execute(
+                    sql.SQL(
+                        "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                        .format(sql.Identifier(make)),
+                    (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
+                )
+                conn.commit()
+
+            print("exists")
+
+            # print("#############################")
 
 #
 #
-# #DBCONNECTION
-#
-# conn = psycopg2.connect(database="car_models",
-#                         host="localhost",
-#                         user="nikita_filin",
-#                         password="9112",
-#                         port="5432")
-#
-# cursor = conn.cursor()
+
+# print(cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'actor')"))
+
+
+
 
 # https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&aj=&ssid=103455360&j%5B%5D=1&j%5B%5D=2&b=2&bw=36&f1=2004&f2=2012&g1=1000&g2=10000&h%5B%5D=1&i%5B%5D=1&p%5B%5D=1&ae=8&af=50&otsi=%D0%BF%D0%BE%D0%B8%D1%81%D0%BA
 #https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&b=2&bw=36&ae=8&af=50
