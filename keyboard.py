@@ -44,3 +44,11 @@ def driv(drivs):
         button_driv = types.KeyboardButton(driv)
         drivs_list = drivs_markup.add(button_driv)
     return drivs_list
+
+def body_type(body_types):
+    body_types_list = []
+    body_types_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for body_type in body_types.keys():
+        button_body_type = types.KeyboardButton(body_type)
+        body_types_list = body_types_markup.add(button_body_type)
+    return body_types_list
