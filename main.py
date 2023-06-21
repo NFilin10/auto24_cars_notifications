@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import psycopg2
 from psycopg2 import sql
 from cfg import cursor, conn
-
+import logging
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
@@ -12,8 +12,8 @@ headers = {
 url = "https://rus.auto24.ee/"
 
 r = requests.get(url, headers=headers)
-print(r.headers)
 soup = BeautifulSoup(r.content, 'html.parser')
+
 
 
 #getting make
@@ -145,7 +145,10 @@ def get_driv():
 #
 
 # #getting all variants
-def all_variants(payload, url, short_model):
+def request(payload, url, short_model, make_id, table_status):
+    found_models = []
+    print("doing request function")
+
 
     request_variants = requests.get(url, data=payload, headers=headers)
     # print(s.text)
@@ -168,12 +171,12 @@ def all_variants(payload, url, short_model):
 
     #getting model
 
-    for i in range(0, (int(page_num)+1)*50-50, 50):
+    for i in range(0, (int(page_num)+1)*100-100, 100):
         s = requests.get(url + "&ak=" + str(i), data=payload, headers=headers)
         soup_variant_page = BeautifulSoup(s.content, 'html.parser')
-
+        a_link = [a['href'] for a in soup_variant_page.find_all('a', class_='row-link')]
         div_description = soup_variant_page.findAll('div', class_='description')
-        for i in div_description:
+        for i, j in zip(div_description, a_link):
             model_heading = i.find(class_='main')
 
             make = model_heading.find('span')
@@ -199,20 +202,10 @@ def all_variants(payload, url, short_model):
 
             price_block = i.find('span', class_='price')
             price = price_block.text
-            print(price)
 
 
             model_heading = make + " " + model + " " + engine
-            cursor.execute(sql.SQL("SELECT EXISTS(SELECT * FROM information_schema.tables WHERE table_name = %s)").format(sql.Identifier(make)), (make,))
 
-            if cursor.fetchone()[0]:
-                pass
-
-            else:
-                cursor.execute(sql.SQL("CREATE TABLE {} (id serial primary key, model varchar(120), model_short varchar(50), year integer, mileage varchar(30), fuel varchar(30), transm varchar(30), body_type varchar(50), drive varchar(40), price varchar(20), link varchar(50))").format(sql.Identifier(make)))
-
-
-            print(model_heading)
 
             year_span = i.find_all('span', class_='year')
             if year_span:
@@ -251,37 +244,228 @@ def all_variants(payload, url, short_model):
             else:
                 drive = None
 
+            link = j
 
-            link = soup_variant_page.find('a', class_='row-link')
+            if table_status == 1:
+                print("TABLE STATUS 1")
+                sql_no_rows(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id)
 
-            link = link['href'].strip()
+            elif table_status == 2:
+                print("TABLE STATUS 2")
+                sql_rows_and_new_model(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id)
 
-            cursor.execute(sql.SQL("SELECT EXISTS(SELECT 1 FROM {} WHERE link = %s)").format(sql.Identifier(make)),(link,)
-            )
-            exists = cursor.fetchone()[0]
+            elif table_status == 3:
+                print("TABLE STATUS 3")
+                sql_rows_and_model(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id)
 
-            if not exists:
-                print("not exists")
+            elif table_status == 4:
+                print("TABLE STATUS 4")
+                result = sql_searching(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id)
+                if result is not None:
+                    found_models.append(result)
+    return found_models
 
-                cursor.execute(
-                    sql.SQL(
-                        "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
-                        .format(sql.Identifier(make)),
-                    (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
-                )
-                conn.commit()
 
-            print("exists")
 
-            # print("#############################")
 
+
+
+
+def sql_no_rows(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id):
+
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                .format(sql.Identifier(make_id)),
+            (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
+        )
+        conn.commit()
+
+
+def sql_rows_and_new_model(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id):
+    cursor.execute(
+        sql.SQL(
+            "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+            .format(sql.Identifier(make_id)),
+        (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
+    )
+    conn.commit()
+
+
+def sql_rows_and_model(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id):
+
+    cursor.execute(sql.SQL("SELECT EXISTS(SELECT 1 FROM {} WHERE link = %s)").format(sql.Identifier(make_id)), (link,)
+                   )
+    exists = cursor.fetchone()[0]
+
+    if not exists:
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                .format(sql.Identifier(make_id)),
+            (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
+        )
+        conn.commit()
+
+
+def sql_searching(model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link, make_id):
+
+    cursor.execute(sql.SQL("SELECT EXISTS(SELECT 1 FROM {} WHERE link = %s)").format(sql.Identifier(make_id)), (link,)
+                   )
+    exists = cursor.fetchone()[0]
+
+    if not exists:
+        cursor.execute(
+            sql.SQL(
+                "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                .format(sql.Identifier(make_id)),
+            (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
+        )
+        conn.commit()
+        return [model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link]
+
+    return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def second_request(payload, url, short_model, make_id):
+#     print("creting second request")
+#
+#     request_variants = requests.get(url, data=payload, headers=headers)
+#     # print(s.text)
 #
 #
-
-# print(cursor.execute("SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'actor')"))
-
-
-
-
-# https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&aj=&ssid=103455360&j%5B%5D=1&j%5B%5D=2&b=2&bw=36&f1=2004&f2=2012&g1=1000&g2=10000&h%5B%5D=1&i%5B%5D=1&p%5B%5D=1&ae=8&af=50&otsi=%D0%BF%D0%BE%D0%B8%D1%81%D0%BA
-#https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&b=2&bw=36&ae=8&af=50
+#     soup_variants = BeautifulSoup(request_variants.content, 'html.parser')
+#
+#     #getting number of pages
+#     pages = soup_variants.find(class_='page-cntr')
+#     if pages is None:
+#         return -1
+#
+#
+#     pages = pages.text.strip()
+#     slash_index = pages.find('/')
+#     closing_parenthesis_index = pages.find(')')
+#
+#     page_num = pages[slash_index + 1:closing_parenthesis_index]
+#
+#
+#     #getting model
+#
+#     for i in range(0, (int(page_num)+1)*50-50, 50):
+#         s = requests.get(url + "&ak=" + str(i), data=payload, headers=headers)
+#         print("SECOND REQUESR --> PAGE URL: " + url + "&ak=" + str(i))
+#         soup_variant_page = BeautifulSoup(s.content, 'html.parser')
+#
+#         div_description = soup_variant_page.findAll('div', class_='description')
+#         a_link = [a['href'] for a in soup_variant_page.find_all('a', class_='row-link')]
+#
+#         for i, j in zip(div_description, a_link):
+#
+#
+#             model_heading = i.find(class_='main')
+#
+#             make = model_heading.find('span')
+#             if make is not None:
+#                 make = make.text
+#             else:
+#                 make = ""
+#
+#             model = model_heading.find('span', class_='model')
+#
+#             if model is not None:
+#                 model = model.text
+#             else:
+#                 model = ""
+#
+#
+#
+#             engine = model_heading.find('span', class_='engine')
+#             if engine is not None:
+#                 engine = engine.text
+#             else:
+#                 engine = ""
+#
+#             price_block = i.find('span', class_='price')
+#             price = price_block.text
+#
+#
+#             model_heading = make + " " + model + " " + engine
+#
+#
+#             year_span = i.find_all('span', class_='year')
+#             if year_span:
+#                 year = year_span[0].text
+#             else:
+#                 year = None
+#
+#
+#             mileage_span = i.find_all('span', class_='mileage')
+#             if mileage_span:
+#                 mileage = mileage_span[0].text
+#             else:
+#                 mileage = None
+#
+#             fuel_span = i.find_all('span', class_='fuel')
+#             if fuel_span:
+#                 fuel = fuel_span[0].text
+#             else:
+#                 fuel = None
+#
+#             transmission_span = i.find_all('span', class_='transmission')
+#             if transmission_span:
+#                 transmission = transmission_span[0].text
+#             else:
+#                 transmission = None
+#
+#             bodytype_span = i.find_all('span', class_='bodytype')
+#             if bodytype_span:
+#                 bodytype = bodytype_span[0].text
+#             else:
+#                 bodytype = None
+#
+#             drive_span = i.find_all('span', class_='drive')
+#             if drive_span:
+#                 drive = drive_span[0].text
+#             else:
+#                 drive = None
+#
+#             link = j
+#
+#
+#
+#             cursor.execute(sql.SQL("SELECT EXISTS(SELECT 1 FROM {} WHERE link = %s)").format(sql.Identifier(make_id)),(link,)
+#             )
+#             exists = cursor.fetchone()[0]
+#
+#             if not exists:
+#                 logging.warning("not exists")
+#                 logging.warning(f"NEW MODEL: {model}, {short_model}, {year}, {mileage}, {fuel}, {transmission}, {bodytype}, {drive}, {price}, {link}")
+#
+#
+#                 cursor.execute(
+#                     sql.SQL(
+#                         "INSERT INTO {} (model, model_short, year, mileage, fuel, transm, body_type, drive, price, link) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+#                         .format(sql.Identifier(make_id)),
+#                     (model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link)
+#                 )
+#                 conn.commit()
+#                 return [True, model, short_model, year, mileage, fuel, transmission, bodytype, drive, price, link]
+#
+#
+#     return [False]
+#
+#
+#

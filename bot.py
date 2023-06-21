@@ -1,7 +1,12 @@
+import time
+
 import telebot
-from cfg import bot_token, cursor
+from cfg import bot_token, cursor, conn
 import keyboard
 import main
+from psycopg2 import sql
+import logging
+
 
 
 bot = telebot.TeleBot(bot_token)
@@ -20,6 +25,7 @@ def start(message):
 def get_user_make(message, makes):
     make = message.text
 
+
     car_info = {}
 
     if make.capitalize() not in makes and make.upper() not in makes:
@@ -31,6 +37,16 @@ def get_user_make(message, makes):
             make = make.upper()
 
         make_id = makes[make]
+        print("MAKE ID: " + make_id)
+        cursor.execute("SELECT EXISTS(SELECT * FROM information_schema.tables WHERE table_name = %s)", (make_id,))
+
+        if not cursor.fetchone()[0]:
+            print("CREATING TABLE FOR MAKE " + make_id)
+            cursor.execute(sql.SQL(
+                "CREATE TABLE {} (id serial primary key, model varchar(120), model_short varchar(50), year integer, mileage varchar(30), fuel varchar(30), transm varchar(30), body_type varchar(50), drive varchar(40), price varchar(20), link varchar(50))").format(
+                sql.Identifier(make_id)))
+            conn.commit()
+
         car_info['make'] = make_id
         get_user_model(message, make_id, car_info)
 
@@ -122,7 +138,6 @@ def get_user_transm(message, transms, car_info, selected_transms):
 
     if transm == "/stop":
         car_info['transms'] = selected_transms
-        print("Selected transms: ", selected_transms)
         bot.send_message(message.chat.id, "выберите привод", reply_markup=keyboard.driv(drivs))
         bot.register_next_step_handler(message, get_user_driv, drivs, car_info, selected_drivs)
     else:
@@ -136,14 +151,12 @@ def get_user_driv(message, drivs, car_info, selected_drivs):
     driv = message.text
 
     if driv == "/stop":
-        print("Selected drivs: ", selected_drivs)
         car_info['drivs'] = selected_drivs
-        searched_cars.append(car_info)
-        # selected_drivs.clear()
-        # selected_fuels.clear()
-        # selected_transms.clear()
-        print(searched_cars)
-        construct_url(message, searched_cars)
+
+        construct_url(car_info, message)
+
+
+
         return searched_cars
     else:
         driv_id = drivs[driv]
@@ -151,59 +164,114 @@ def get_user_driv(message, drivs, car_info, selected_drivs):
         bot.register_next_step_handler(message, get_user_driv, drivs, car_info, selected_drivs)
 
 
-def construct_url(message, searched_cars):
-    car = searched_cars[len(searched_cars) - 1]
-    body_types = car['body_types']
-    make = car['make']
-    model = car['model']
-    start_year = car['start_year']
-    end_year = car['end_year']
-    fuels = car['fuels']
-    transms = car['transms']
-    drivs = car['drivs']
+def construct_url(car, message):
+        global payload, base_url, model, make
 
-    payload = {
-        'j': body_types,
-        'bn': '2',
-        'a': '100',
-        'b': make,
-        'bw': model,
-        'f1': start_year,
-        'f2': end_year,
-        'h': fuels,
-        'i': transms,
-        'p': drivs,
-        'ae': '8',
-        'af': '50'
-    }
 
-    base_url = "https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&b=2&b=" + str(make) + "&bw=" + str(model) + "&f1=" + str(start_year) + "&f2=" + str(end_year)
 
-    fuel_url = ""
-    transm_url = ""
-    driv_url = ""
-    body_type_url = ""
+        body_types = car['body_types']
+        make = car['make']
+        model = car['model']
+        start_year = car['start_year']
+        end_year = car['end_year']
+        fuels = car['fuels']
+        transms = car['transms']
+        drivs = car['drivs']
 
-    for fuel in fuels:
-        fuel_url += "&h%5B%5D=" + str(fuel)
+        payload = {
+            'j': body_types,
+            'bn': '2',
+            'a': '100',
+            'b': make,
+            'bw': model,
+            'f1': start_year,
+            'f2': end_year,
+            'h': fuels,
+            'i': transms,
+            'p': drivs,
+            'ae': '8',
+            'af': '100'
+        }
 
-    for transm in transms:
-        transm_url += "&i%5B%5D=" + str(transm)
+        base_url = "https://rus.auto24.ee/kasutatud/nimekiri.php?bn=2&a=100&b=2&b=" + str(make) + "&bw=" + str(model) + "&f1=" + str(start_year) + "&f2=" + str(end_year)
 
-    for driv in drivs:
-        driv_url += "&p%5B%5D=" + str(driv)
+        fuel_url = ""
+        transm_url = ""
+        driv_url = ""
+        body_type_url = ""
 
-    for body_type in body_types:
-        body_type_url += "&j%5B%5D=" + str(body_type)
+        for fuel in fuels:
+            fuel_url += "&h%5B%5D=" + str(fuel)
 
-    base_url += fuel_url + transm_url + driv_url + body_type_url + "&ae%5B%5D=" + "8" + "&af%5B%5D=" + "50"
-    print(base_url)
-    all_variants = main.all_variants(payload, base_url, model)
-    if all_variants == -1:
-        bot.send_message(message.chat.id, "Машин не найдено")
+        for transm in transms:
+            transm_url += "&i%5B%5D=" + str(transm)
 
-    # else:
-    #     fill_db()
+        for driv in drivs:
+            driv_url += "&p%5B%5D=" + str(driv)
+
+        for body_type in body_types:
+            body_type_url += "&j%5B%5D=" + str(body_type)
+
+        base_url += fuel_url + transm_url + driv_url + body_type_url + "&ae%5B%5D=" + "8" + "&af%5B%5D=" + "100"
+
+        car['url'] = base_url
+        car['payload'] = payload
+        searched_cars.append(car)
+
+
+        print("BASE URL: " + base_url)
+
+
+        check_if_table_have_rows(payload, base_url, model, make)
+
+        start_searching(message)
+
+def start_searching(message):
+    print(searched_cars)
+    print("going in while true")
+    while True:
+        for car in searched_cars:
+            res = main.request(car['payload'], car['url'], car['model'], car['make'], 4)
+            if len(res) != 0:
+                print("RESULT: " + str(res))
+                bot.send_message(message.chat.id, str(res))
+        print("60 sec start")
+        time.sleep(60)
+        print("60 sec over")
+
+
+
+def check_if_table_have_rows(payload, base_url, model, make):
+        cursor.execute(sql.SQL("SELECT ROW_NUMBER() OVER () as row_number FROM {}").format(sql.Identifier(make)))
+            # Fetch the result
+        row = cursor.fetchone()
+
+        model_exists = sql.SQL("SELECT EXISTS(SELECT 1 FROM {} WHERE model_short = %s)").format(sql.Identifier(make))
+        cursor.execute(model_exists, (str(model),))
+        model_exists = cursor.fetchone()[0]
+
+
+
+        if row is None:
+            print("There is no rows in table " + make)
+            main.request(payload, base_url, model, make, 1)
+
+        elif row is not None and not model_exists:
+            print("there is row but no such model")
+            main.request(payload, base_url, model, make, 2)
+
+        elif row and model_exists:
+            print("there is row and model")
+            main.request(payload, base_url, model, make, 3)
+
+
+
+
+
+        # if all_variants == -1:
+        #     bot.send_message(message.chat.id, "Машин не найдено")
+
+
 
 
 
